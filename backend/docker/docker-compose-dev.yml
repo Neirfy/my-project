@@ -1,0 +1,71 @@
+version: "3.9"
+
+services:
+  project_postgres:
+    image: postgres:13.8-bullseye
+    container_name: ${FASTAPI_TITLE}_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - project_db:/var/lib/postgresql/data
+    ports:
+      - "5256:5432"
+    env_file:
+      - .env
+
+  project_redis:
+    image: redis:6.2.7
+    hostname: "${FASTAPI_TITLE}-redis"
+    restart: always
+    container_name: ${FASTAPI_TITLE}_redis
+    user: ${REDIS_USER}
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 1s
+      timeout: 3s
+      retries: 50
+    volumes:
+      - ./redis:/var/lib/redis
+    ports:
+      - "6357:6379"
+    env_file:
+      - .env
+
+  project_celery_worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: ${FASTAPI_TITLE}_celery_worker
+    image: ${FASTAPI_TITLE}_celery_worker
+    command: poetry run celery --app celery_worker.worker:app worker
+    depends_on:
+      - project_redis
+      - project_postgres
+    env_file:
+      - .env
+
+  project_celery_beat:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: ${FASTAPI_TITLE}_celery_beat
+    image: ${FASTAPI_TITLE}_celery_beat
+    command: poetry run celery -A celery_worker.worker:app beat --loglevel=info
+    depends_on:
+      - project_redis
+      - project_celery_worker
+    env_file:
+      - .env
+
+volumes:
+  project_db:
+    name: project_postgres
+
+  project_redis_db:
+    name: project_redis
